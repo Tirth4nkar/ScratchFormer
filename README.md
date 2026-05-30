@@ -229,6 +229,7 @@ python src/training/train.py
 - [ ] Encoder Blocks
 - [ ] Decoder Blocks
 - [ ] Masking Mechanisms
+- [ ] KV Cache Implementation for the Decoder
 - [ ] Full Encoder-Decoder Architecture
 
 ---
