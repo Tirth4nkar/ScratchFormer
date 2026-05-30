@@ -1,0 +1,35 @@
+# Core ML
+torch>=2.7.0
+numpy>=2.3.0
+
+# Data processing
+pandas>=2.3.0
+
+# Visualization
+matplotlib>=3.10.0
+
+# Progress bars
+tqdm>=4.67.0
+
+# Configuration
+pyyaml>=6.0.0
+
+# Jupyter notebooks
+jupyter>=1.1.0
+notebook>=7.4.0
+ipykernel>=6.30.0
+
+# Experiment tracking
+tensorboard>=2.20.0
+
+# Testing
+pytest>=8.4.0
+
+# Code formatting and linting
+black>=25.1.0
+ruff>=0.12.0
+
+# Hugging Face ecosystem
+transformers>=4.53.0
+datasets>=4.0.0
+tokenizers>=0.21.0
