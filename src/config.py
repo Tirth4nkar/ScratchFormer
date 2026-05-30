@@ -1,31 +1,54 @@
 """
-config.py — Project-wide paths and settings.
+config.py — Project-wide model settings.
 All modules should import from here rather than hard-coding paths.
 """
-from pathlib import Path
-from dotenv import load_dotenv
 import os
+from pathlib import Path
+from dataclasses import dataclass
 
-load_dotenv()
+@dataclass(frozen=True)
+class ModelConfig:
+    name: str = "scratchformer"
+    vocab_size: int = 128
+    vocab_file: Path = Path("data/vocab.txt")
+    n_head: int = 8
+    n_layer: int = 6
+    n_embed: int = 256
+    block_size: int = 128
+    batch_size: int = 64
+    max_iters: int = 5000
+    
 
-# ── Paths ──────────────────────────────────────────────────────
-ROOT_DIR       = Path(__file__).resolve().parents[2]
-DATA_DIR       = ROOT_DIR / os.getenv("DATA_DIR", "data")
-RAW_DIR        = DATA_DIR / "raw"
-INTERIM_DIR    = DATA_DIR / "interim"
-PROCESSED_DIR  = DATA_DIR / "processed"
-EXTERNAL_DIR   = DATA_DIR / "external"
-MODELS_DIR     = ROOT_DIR / os.getenv("MODELS_DIR", "models")
-REPORTS_DIR    = ROOT_DIR / os.getenv("REPORTS_DIR", "reports")
-FIGURES_DIR    = REPORTS_DIR / "figures"
+@dataclass(frozen=True)
+class PathsConfig:
+    data_dir: Path = Path("data")
+    models_dir: Path = Path("models")
+    logs_dir: Path = Path("logs")
+    figures_dir: Path = Path("figures")
+    raw_dir: Path = data_dir / "raw"
+    processed_dir: Path = data_dir / "processed"
+    
+    
+@dataclass(frozen=True)
+class TokensConfig:
+    pad_token: str = "<PAD>"
+    unk_token: str = "<UNK>"
+    bos_token: str = "<BOS>"
+    eos_token: str = "<EOS>"
+    mask_token: str = "<MASK>"
+    cls_token: str = "<CLS>"
+    sep_token: str = "<SEP>"
+    
+    
+def get_config():
+    return {
+        "model": ModelConfig(),
+        "paths": PathsConfig(),
+        "tokens": TokensConfig(),
+    }
 
-# ── LLM API keys ──────────────────────────────────────────────
-OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")
-GROQ_API_KEY        = os.getenv("GROQ_API_KEY", "")
-OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# ── LangSmith tracing ─────────────────────────────────────────
-LANGCHAIN_API_KEY      = os.getenv("LANGCHAIN_API_KEY", "")
-LANGCHAIN_PROJECT      = os.getenv("LANGCHAIN_PROJECT", "my_project")
-LANGCHAIN_TRACING_V2   = os.getenv("LANGCHAIN_TRACING_V2", "false")
+config = get_config()
+model_config = config["model"]
+paths_config = config["paths"]
+tokens_config = config["tokens"]
