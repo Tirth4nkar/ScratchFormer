@@ -9,27 +9,45 @@ from config import config
 import re
 import torch
 import utils.exceptions as E
+from transformers import AutoTokenizer
+from transformers.utils import HFValidationError
+from huggingface_hub.utils import RepositoryNotFoundError
+from tokenizers import (
+    Tokenizer, 
+    models, 
+    trainers, 
+    pre_tokenizers, 
+    decoders
+    )
 
 
 class Tokenizer:
     """Tokenizer class to convert text to token IDs and vice versa."""
     name = "scratchformer_tokenizer"
     
-    def __init__(self, vocab_file: Path):
-        self.vocab_file = vocab_file
+    def __init__(self, model_card: str | None) -> None:
+        self.base_model = model_card
         self.token_to_id: Dict[str, int] = {}
         self.id_to_token: Dict[int, str] = {}
         self._load_vocab()
+        self.instruction_template = config.tokens.enable_instruction_template
+        
+        if self.base_model is None:
+            self.build_vocab()
+            
         
     def _load_vocab(self):
-        if not self.vocab_file.exists():
-            raise E.VocabularyError(f"Vocabulary file not found: {self.vocab_file}")
-        
-        with open(self.vocab_file, "r", encoding="utf-8") as f:
-            for idx, line in enumerate(f):
-                token = line.strip()
-                self.token_to_id[token] = idx
-                self.id_to_token[idx] = token
+        """Loads vocabulary from the specified model card using Hugging Face's AutoTokenizer."""
+        try:
+            hf_tokenizer = AutoTokenizer.from_pretrained(self.base_model)
+        except (RepositoryNotFoundError, HFValidationError, OSError) as e:
+            raise E.VocabularyError(f"Could not load model card: {self.base_model}") from e
+
+        vocab = hf_tokenizer.get_vocab() 
+
+        for token, idx in vocab.items():
+            self.token_to_id[token] = idx
+            self.id_to_token[idx] = token
                 
     @property
     def vocab_size(self) -> int:
@@ -38,6 +56,45 @@ class Tokenizer:
     @property
     def __len__(self):
         return self.vocab_size
+    
+    
+    def build_vocab(self, training_data: List[str] = None) -> None:
+        """Builds a vocabulary from the training data.
+        
+        Args:
+            training_data: List of paths to .txt files used as training corpus.
+        """
+        if not training_data:
+            raise E.VocabularyError("No training data provided for vocabulary building.")
+
+        missing = [f for f in training_data if not Path(f).exists()]
+        if missing:
+            raise E.VocabularyError(f"Training files not found: {missing}")
+
+        # Set up a fresh BPE tokenizer for training
+        hf_tokenizer = Tokenizer(models.BPE(unk_token=self.unk_token))
+        hf_tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True)
+        hf_tokenizer.decoder = decoders.ByteLevel()
+
+        trainer = trainers.BpeTrainer(
+            vocab_size=self.vocab_size,
+            special_tokens=self.special_tokens,  # e.g. [<unk>, <pad>, <bos>, <eos>]
+            show_progress=True,
+        )
+
+        hf_tokenizer.train(files=training_data, trainer=trainer)
+
+        # Populate this class's own token maps from the trained vocab
+        vocab = hf_tokenizer.get_vocab()
+        self.token_to_id = {}
+        self.id_to_token = {}
+        for token, idx in vocab.items():
+            self.token_to_id[token] = idx
+            self.id_to_token[idx] = token
+
+        # Keep the underlying HF tokenizer around if you need .encode/.decode later
+        self._trained_tokenizer = hf_tokenizer
+
     
     @staticmethod
     def positional_encoding(
@@ -60,9 +117,31 @@ class Tokenizer:
     def word_piece_tokenize(text: str) -> List[str]:
         """Splits text into word pieces using a simple regex-based approach."""
         return re.findall(r"\w+|[^\w\s]", text, re.UNICODE)
-    
+
+    @staticmethod
+    def apply_chat_template(chat: List[dict]) -> str:
+        """
+            Apply a simple chat template to the input text; assumes chat is a list of messages with 'role' and 'content' 
+            of the format [{"role": "user", "content": "Hello"}, {"role": "assistant", "content": "Hi there!"}]. 
+            Specifically, it wraps each message with special tokens and formats for an instruction finetuned chat model, 
+            it as: "<BOS> role content <EOS>". This helps the model understand the structure of the conversation and differentiate between user and assistant messages.
+        """
+        assert isinstance(chat, list), "Chat input must be a list of messages"
+        for message in chat:
+            assert "role" in message and "content" in message, "Each message must have 'role' and 'content' keys"
+        return [f"{config.tokens.bos_token} {message['role']} {message['content']} {config.tokens.eos_token}" for message in chat]
+
+
     def encode(self, text: str, pad_token_id: int = 0) -> List[int]:
         """Tokenizes input text and converts to token IDs"""
+        assert isinstance(text, str), "Input text must be a string"
+        assert len(text) > 0, "Input text cannot be empty"
+        assert isinstance(pad_token_id, int), "pad_token_id must be an integer"
+        assert pad_token_id >= 0, "pad_token_id must be non-negative"
+        
+        if pad_token_id not in self.id_to_token:
+            raise E.TokenizerError(f"pad_token_id {pad_token_id} is not in the vocabulary")
+        
         # Add special tokens and convert to IDs
         tokens = Tokenizer.word_piece_tokenize(text)
         input_tokens = [config.tokens.bos_token] + tokens + [config.tokens.eos_token]
@@ -87,7 +166,7 @@ class Tokenizer:
     
     def decode(self, token_ids: List[int], remove_special_tokens: bool = True) -> str:
         """Converts token IDs back to text"""
-        tokens = [self.id_to_token.get(token_id, config.tokens.unk_token) for token_id in token_ids]
+        tokens = [self.id_to_token.get(token_id, config.tokens.unk_token) for token_id in token_ids] + [config.tokens.eos_token, config.tokens.bos_token]
         if remove_special_tokens:
             tokens = [
                 token for token in tokens if token not in [config.tokens.bos_token, config.tokens.eos_token, config.tokens.unk_token]
